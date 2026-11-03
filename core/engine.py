@@ -247,10 +247,13 @@ class MasterTradingEngine:
                     await self.update_live_bars_from_topstepx()
 
                 # 3. Evaluar señales de apertura de vela en cada símbolo
-                if is_allowed and not self.risk_guardian.is_locked_out:
+                if is_allowed:
                     await self._evaluate_all_symbols(now_ct)
 
-                # 4. Notificar a la interfaz web vía WebSocket
+                # 4. Gestionar posiciones abiertas (evaluar TP y SL de forma idéntica al backtest)
+                await self._manage_open_positions()
+
+                # 5. Notificar a la interfaz web vía WebSocket
                 if self.ui_broadcast_callback:
                     await self.ui_broadcast_callback()
 
@@ -300,6 +303,40 @@ class MasterTradingEngine:
                         reason=f"Rebote con mecha en VWAP ({sig['vwap']:.2f}) confirmado."
                     )
                     await self._execute_signal(trade_sig)
+
+    async def _manage_open_positions(self):
+        """Monitorea las posiciones abiertas para detectar si alcanzaron TP o SL, exacto al backtest."""
+        for sym, pos in list(self.risk_guardian.open_positions.items()):
+            worker = self.workers.get(sym)
+            if not worker:
+                continue
+            curr_p = worker.current_price
+            meta = AVAILABLE_SYMBOLS[sym]
+
+            hit_tp = False
+            hit_sl = False
+
+            if pos["action"] == "BUY":
+                if curr_p >= pos["tp"]:
+                    hit_tp = True
+                elif curr_p <= pos["sl"]:
+                    hit_sl = True
+            else: # SELL
+                if curr_p <= pos["tp"]:
+                    hit_tp = True
+                elif curr_p >= pos["sl"]:
+                    hit_sl = True
+
+            if hit_tp:
+                ticks = round(abs(pos["tp"] - pos["entry_price"]) / meta.tick_size)
+                gross = ticks * meta.tick_value * pos["size"]
+                self.risk_guardian.record_close_position(sym, pos["tp"], gross)
+                self.log(f"🎉 TAKE PROFIT ALCANZADO en {sym} @ {pos['tp']:.2f}! Ganancia: +${gross:.2f}", "INFO")
+            elif hit_sl:
+                ticks = round(abs(pos["entry_price"] - pos["sl"]) / meta.tick_size)
+                loss = -ticks * meta.tick_value * pos["size"]
+                self.risk_guardian.record_close_position(sym, pos["sl"], loss)
+                self.log(f"🛡️ STOP LOSS EJECUTADO en {sym} @ {pos['sl']:.2f} (5 ticks VWAP). Pérdida: ${loss:.2f}", "WARNING")
 
     async def _execute_signal(self, signal: TradeSignal):
         """Ejecuta una señal autorizada enviando la orden Bracket con 2 contratos a TopstepX."""
