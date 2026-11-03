@@ -13,7 +13,7 @@ from typing import Set
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
@@ -78,10 +78,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "ui", "static")), name="static")
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "ui", "templates"))
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard(request: Request):
     """Página principal del panel institucional."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
