@@ -86,9 +86,8 @@ class VWAPWickBounceStrategy:
                 reward_ticks = int(round(reward_dist / self.meta.tick_size))
                 rr_ratio = round(reward_dist / risk_dist, 2)
 
-                # Filtro institucional: Rechazar si el cierre se alejó demasiado de VWAP
-                # (Riesgo máximo 24 ticks / 6 puntos en ES) o si el R:R es desfavorable (< 0.8)
-                if risk_ticks > 24 or rr_ratio < 0.8:
+                # Filtro de proximidad máxima según el símbolo (ES: 24, NQ: 48, CL: 35, YM: 30 ticks)
+                if risk_ticks > self.meta.max_risk_ticks:
                     return None
 
                 return TradeSignal(
@@ -133,9 +132,8 @@ class VWAPWickBounceStrategy:
                 reward_ticks = int(round(reward_dist / self.meta.tick_size))
                 rr_ratio = round(reward_dist / risk_dist, 2)
 
-                # Filtro institucional: Rechazar si el cierre se alejó demasiado de VWAP
-                # (Riesgo máximo 24 ticks / 6 puntos en ES) o si el R:R es desfavorable (< 0.8)
-                if risk_ticks > 24 or rr_ratio < 0.8:
+                # Filtro de proximidad máxima según el símbolo (ES: 24, NQ: 48, CL: 35, YM: 30 ticks)
+                if risk_ticks > self.meta.max_risk_ticks:
                     return None
 
                 return TradeSignal(

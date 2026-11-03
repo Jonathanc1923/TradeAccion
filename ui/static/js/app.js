@@ -102,7 +102,7 @@ function renderSymbolsTable(symbols) {
         <td style="color: var(--accent-band);">${bandLow.toFixed(2)}</td>
         <td style="color: var(--color-buy);">+${tpDist} pts</td>
         <td style="color: var(--color-sell);">${slTicks} pts (5t)</td>
-        <td><span class="badge-tag badge-buy">Vela M15 Activa</span></td>
+        <td><span class="badge-tag badge-buy">Vela M30 Activa</span></td>
       </tr>
     `;
   }
@@ -177,7 +177,7 @@ function renderConsoleLogs(logs) {
   container.innerHTML = html;
 }
 
-// Visualizador de Gráfico de Velas M15, VWAP y Bandas en HTML5 Canvas
+// Visualizador de Gráfico de Velas M30, Session VWAP y Bandas ±1σ en HTML5 Canvas
 function renderActiveChart() {
   const canvas = document.getElementById("candleChartCanvas");
   if (!canvas) return;
@@ -185,7 +185,7 @@ function renderActiveChart() {
 
   // Ajustar resolución DPI
   canvas.width = canvas.parentElement.clientWidth - 32;
-  canvas.height = 360;
+  canvas.height = 420;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -198,65 +198,146 @@ function renderActiveChart() {
   }
 
   const sData = latestState.symbols[selectedSym];
-  const candles = [];
-  // Simular secuencia de velas para el gráfico a partir del snapshot
+  const candles = sData.candles || [];
+
+  if (candles.length === 0) {
+    ctx.fillStyle = "#64748b";
+    ctx.font = "14px JetBrains Mono";
+    ctx.fillText("Cargando historial de velas M30 para " + selectedSym + "...", 40, 180);
+    return;
+  }
+
   const vwap = sData.vwap_data.vwap;
   const bandUp = sData.vwap_data.upper_band_1;
   const bandLow = sData.vwap_data.lower_band_1;
   const currP = sData.current_price;
 
-  // Rango de precios para escalar el gráfico
-  const maxP = Math.max(bandUp, currP) + (vwap * 0.003);
-  const minP = Math.min(bandLow, currP) - (vwap * 0.003);
-  const pRange = maxP - minP;
+  // Calcular rango min / max exacto
+  let minP = Infinity;
+  let maxP = -Infinity;
+  candles.forEach(c => {
+    if (c.low < minP) minP = c.low;
+    if (c.high > maxP) maxP = c.high;
+    if (c.lower && c.lower < minP) minP = c.lower;
+    if (c.upper && c.upper > maxP) maxP = c.upper;
+  });
+
+  if (currP > maxP) maxP = currP;
+  if (currP < minP) minP = currP;
+
+  const pRange = (maxP - minP) || 1.0;
+  minP -= pRange * 0.05;
+  maxP += pRange * 0.05;
+  const totalRange = maxP - minP;
+
+  const chartLeft = 50;
+  const chartRight = canvas.width - 95;
+  const chartWidth = chartRight - chartLeft;
+  const chartTop = 45;
+  const chartBottom = canvas.height - 35;
+  const chartHeight = chartBottom - chartTop;
 
   function toY(price) {
-    return canvas.height - ((price - minP) / pRange * (canvas.height - 60)) - 30;
+    return chartBottom - ((price - minP) / totalRange * chartHeight);
   }
 
-  // 1. Dibujar líneas de referencia (Grid)
+  function toX(idx) {
+    return chartLeft + (idx + 0.5) * (chartWidth / candles.length);
+  }
+
+  // 1. Grid y Etiquetas de Precio en el Eje Derecho
   ctx.strokeStyle = "#1e2538";
   ctx.lineWidth = 1;
-  for (let i = 0; i < 5; i++) {
-    const y = 30 + (i * ((canvas.height - 60) / 4));
+  ctx.fillStyle = "#64748b";
+  ctx.font = "11px JetBrains Mono";
+
+  const numGridLines = 6;
+  for (let i = 0; i <= numGridLines; i++) {
+    const p = minP + (i * (totalRange / numGridLines));
+    const y = toY(p);
     ctx.beginPath();
-    ctx.moveTo(40, y);
-    ctx.lineTo(canvas.width - 60, y);
+    ctx.moveTo(chartLeft, y);
+    ctx.lineTo(chartRight, y);
     ctx.stroke();
+
+    ctx.fillText(p.toFixed(2), chartRight + 8, y + 4);
   }
 
-  // 2. Dibujar Línea VWAP (Cyan)
-  const yVwap = toY(vwap);
-  ctx.strokeStyle = "#06b6d4";
-  ctx.lineWidth = 2;
+  // 2. Curvas continuas de Bandas ±1σ (Púrpura)
+  ctx.strokeStyle = "#a855f7";
+  ctx.lineWidth = 1.2;
   ctx.setLineDash([4, 4]);
+
+  // Banda Superior
   ctx.beginPath();
-  ctx.moveTo(50, yVwap);
-  ctx.lineTo(canvas.width - 80, yVwap);
+  candles.forEach((c, i) => {
+    const x = toX(i);
+    const y = toY(c.upper);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Banda Inferior
+  ctx.beginPath();
+  candles.forEach((c, i) => {
+    const x = toX(i);
+    const y = toY(c.lower);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.fillStyle = "#06b6d4";
-  ctx.font = "11px JetBrains Mono";
-  ctx.fillText(`VWAP: ${vwap.toFixed(2)}`, canvas.width - 75, yVwap + 4);
-
-  // 3. Dibujar Bandas ±1σ (Púrpura)
-  const yUp = toY(bandUp);
-  const yLow = toY(bandLow);
-  ctx.strokeStyle = "#818cf8";
-  ctx.lineWidth = 1.5;
+  // 3. Curva continua de Session VWAP (Cyan)
+  ctx.strokeStyle = "#06b6d4";
+  ctx.lineWidth = 2.0;
   ctx.beginPath();
-  ctx.moveTo(50, yUp);
-  ctx.lineTo(canvas.width - 80, yUp);
-  ctx.moveTo(50, yLow);
-  ctx.lineTo(canvas.width - 80, yLow);
+  candles.forEach((c, i) => {
+    const x = toX(i);
+    const y = toY(c.vwap);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
   ctx.stroke();
 
-  ctx.fillStyle = "#818cf8";
-  ctx.fillText(`+1σ: ${bandUp.toFixed(2)}`, canvas.width - 75, yUp + 4);
-  ctx.fillText(`-1σ: ${bandLow.toFixed(2)}`, canvas.width - 75, yLow + 4);
+  // 4. Dibujar Velas Japonesas M30 Reales (Mechas y Cuerpos)
+  const candleW = Math.max(3, Math.min(16, (chartWidth / candles.length) * 0.65));
 
-  // 4. Dibujar Niveles de la Estrategia (TP al 50% y SL a 5 ticks)
+  candles.forEach((c, i) => {
+    const x = toX(i);
+    const isBull = c.close >= c.open;
+    const color = isBull ? "#10b981" : "#f43f5e";
+
+    // Mecha (High a Low)
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x, toY(c.high));
+    ctx.lineTo(x, toY(c.low));
+    ctx.stroke();
+
+    // Cuerpo (Open a Close)
+    const yTop = toY(Math.max(c.open, c.close));
+    const yBottom = toY(Math.min(c.open, c.close));
+    const bodyHeight = Math.max(2, yBottom - yTop);
+
+    ctx.fillStyle = color;
+    ctx.fillRect(x - candleW / 2, yTop, candleW, bodyHeight);
+  });
+
+  // 5. Etiquetas de Tiempo (Eje X)
+  ctx.fillStyle = "#64748b";
+  ctx.font = "10px JetBrains Mono";
+  const stepTime = Math.max(1, Math.floor(candles.length / 7));
+  candles.forEach((c, i) => {
+    if (i % stepTime === 0 || i === candles.length - 1) {
+      const x = toX(i);
+      ctx.fillText(c.time, x - 20, chartBottom + 18);
+    }
+  });
+
+  // 6. Niveles de Estrategia Activa (SL 5 ticks VWAP y TP 50% Banda)
   const tpDist = (bandUp - vwap) * 0.5;
   const tpLevel = currP + tpDist;
   const slLevel = vwap - (sData.tick_size * 5);
@@ -264,35 +345,35 @@ function renderActiveChart() {
   const yTp = toY(tpLevel);
   const ySl = toY(slLevel);
 
-  // Línea TP (Verde)
+  // Línea TP (Verde Discontinua)
   ctx.strokeStyle = "#10b981";
   ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 3]);
+  ctx.setLineDash([5, 4]);
   ctx.beginPath();
-  ctx.moveTo(50, yTp);
-  ctx.lineTo(canvas.width - 80, yTp);
+  ctx.moveTo(chartLeft, yTp);
+  ctx.lineTo(chartRight, yTp);
   ctx.stroke();
   ctx.fillStyle = "#10b981";
-  ctx.fillText(`TP (50%): ${tpLevel.toFixed(2)}`, canvas.width - 75, yTp + 4);
+  ctx.fillText(`TP: ${tpLevel.toFixed(2)}`, chartRight + 8, yTp + 4);
 
-  // Línea SL (Roja)
+  // Línea SL (Roja Discontinua)
   ctx.strokeStyle = "#f43f5e";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(50, ySl);
-  ctx.lineTo(canvas.width - 80, ySl);
+  ctx.moveTo(chartLeft, ySl);
+  ctx.lineTo(chartRight, ySl);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = "#f43f5e";
-  ctx.fillText(`SL (5t): ${slLevel.toFixed(2)}`, canvas.width - 75, ySl + 4);
+  ctx.fillText(`SL: ${slLevel.toFixed(2)}`, chartRight + 8, ySl + 4);
 
-  // 5. Dibujar Precio Actual
-  const yCurr = toY(currP);
-  ctx.fillStyle = "#f1f5f9";
-  ctx.beginPath();
-  ctx.arc(canvas.width - 120, yCurr, 5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillText(`Spot: ${currP.toFixed(2)}`, canvas.width - 110, yCurr - 8);
+  // 7. Encabezado con Información en Tiempo Real de la Sesión
+  ctx.fillStyle = "#f8fafc";
+  ctx.font = "bold 13px JetBrains Mono";
+  ctx.fillText(
+    `${selectedSym} (M30) | Spot: ${currP.toFixed(2)} | VWAP Sesión: ${vwap.toFixed(2)} | +1σ: ${bandUp.toFixed(2)} | -1σ: ${bandLow.toFixed(2)}`,
+    chartLeft, 24
+  );
 }
 
 // Navegación por pestañas

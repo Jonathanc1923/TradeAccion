@@ -62,10 +62,10 @@ class TopstepXClient:
                 logging.error(f"Error al conectar con TopstepX: {e}")
                 return False
 
-    async def retrieve_bars(self, contract_id: str, unit: int = 2, unit_number: int = 15, limit: int = 1000, live: bool = False) -> List[dict]:
+    async def retrieve_bars(self, contract_id: str, unit: int = 2, unit_number: int = 30, limit: int = 1000, live: bool = False) -> List[dict]:
         """
         Descarga barras históricas oficiales desde POST /api/History/retrieveBars
-        unit: 2 = Minutos, unitNumber: 15 = Velas de 15 minutos
+        unit: 2 = Minutos, unitNumber: 30 = Velas de 30 minutos (M30)
         """
         if not self.is_authenticated:
             await self.authenticate()

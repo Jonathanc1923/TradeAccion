@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from typing import Optional, List
 
 @dataclass
-class Candle15M:
+class CandleBar:
     timestamp: int           # Epoch milliseconds
-    datetime_str: str        # Formato ISO / legible
+    datetime_str: str        # Formato legible (HH:MM CT)
     open: float
     high: float
     low: float
@@ -22,6 +22,9 @@ class Candle15M:
     upper_band_2: float = 0.0
     lower_band_2: float = 0.0
     is_closed: bool = True
+
+# Alias para compatibilidad regresiva
+Candle15M = CandleBar
 
 class PrecisionVWAP:
     def __init__(self, std_multiplier: float = 1.0):

@@ -16,25 +16,38 @@ class SymbolMetadata:
     max_contracts: int
     is_micro: bool
     category: str
+    max_risk_ticks: int = 30
 
 # Metadatos precisos para todos los futuros CME admitidos en Topstep
 AVAILABLE_SYMBOLS: Dict[str, SymbolMetadata] = {
     # Índices Minis Estándar CME (Principales)
-    "ES": SymbolMetadata("ES", "E-mini S&P 500", 0.25, 12.50, 2, False, "EQUITIES"),
-    "NQ": SymbolMetadata("NQ", "E-mini Nasdaq 100", 0.25, 5.00, 2, False, "EQUITIES"),
-    "YM": SymbolMetadata("YM", "E-mini Dow Jones", 1.00, 5.00, 2, False, "EQUITIES"),
-    "RTY": SymbolMetadata("RTY", "E-mini Russell 2000", 0.10, 5.00, 2, False, "EQUITIES"),
+    "ES": SymbolMetadata("ES", "E-mini S&P 500", 0.25, 12.50, 2, False, "EQUITIES", 24),
+    "NQ": SymbolMetadata("NQ", "E-mini Nasdaq 100", 0.25, 5.00, 2, False, "EQUITIES", 48),
+    "YM": SymbolMetadata("YM", "E-mini Dow Jones", 1.00, 5.00, 2, False, "EQUITIES", 30),
+    "RTY": SymbolMetadata("RTY", "E-mini Russell 2000", 0.10, 5.00, 2, False, "EQUITIES", 30),
     # Commodities Estándar
-    "CL": SymbolMetadata("CL", "Crude Oil (Petróleo)", 0.01, 10.00, 2, False, "COMMODITIES"),
-    "GC": SymbolMetadata("GC", "Gold (Oro)", 0.10, 10.00, 2, False, "METALS"),
+    "CL": SymbolMetadata("CL", "Crude Oil (Petróleo)", 0.01, 10.00, 2, False, "COMMODITIES", 35),
+    "GC": SymbolMetadata("GC", "Gold (Oro)", 0.10, 10.00, 2, False, "METALS", 30),
     
     # Índices Micros CME
-    "MES": SymbolMetadata("MES", "Micro E-mini S&P 500", 0.25, 1.25, 4, True, "EQUITIES"),
-    "MNQ": SymbolMetadata("MNQ", "Micro E-mini Nasdaq 100", 0.25, 0.50, 4, True, "EQUITIES"),
-    "MYM": SymbolMetadata("MYM", "Micro E-mini Dow Jones", 1.00, 0.50, 4, True, "EQUITIES"),
-    "M2K": SymbolMetadata("M2K", "Micro E-mini Russell 2000", 0.10, 0.50, 4, True, "EQUITIES"),
-    "MCL": SymbolMetadata("MCL", "Micro Crude Oil", 0.01, 1.00, 4, True, "COMMODITIES"),
-    "MGC": SymbolMetadata("MGC", "Micro Gold", 0.10, 1.00, 4, True, "METALS")
+    "MES": SymbolMetadata("MES", "Micro E-mini S&P 500", 0.25, 1.25, 4, True, "EQUITIES", 24),
+    "MNQ": SymbolMetadata("MNQ", "Micro E-mini Nasdaq 100", 0.25, 0.50, 4, True, "EQUITIES", 48),
+    "MYM": SymbolMetadata("MYM", "Micro E-mini Dow Jones", 1.00, 0.50, 4, True, "EQUITIES", 30),
+    "M2K": SymbolMetadata("M2K", "Micro E-mini Russell 2000", 0.10, 0.50, 4, True, "EQUITIES", 30),
+    "MCL": SymbolMetadata("MCL", "Micro Crude Oil", 0.01, 1.00, 4, True, "COMMODITIES", 35),
+    "MGC": SymbolMetadata("MGC", "Micro Gold", 0.10, 1.00, 4, True, "METALS", 30)
+}
+
+# IDs de contratos continuos / activos oficiales en api.topstepx.com
+TOPSTEPX_CONTRACT_IDS: Dict[str, str] = {
+    "ES": "CON.F.US.EP.Z26",
+    "NQ": "CON.F.US.ENQ.Z26",
+    "CL": "CON.F.US.CLE.Z26",
+    "YM": "CON.F.US.MYM.Z26",
+    "MES": "CON.F.US.MES.Z26",
+    "MNQ": "CON.F.US.MNQ.Z26",
+    "MCL": "CON.F.US.MCL.Z26",
+    "MYM": "CON.F.US.MYM.Z26"
 }
 
 @dataclass
