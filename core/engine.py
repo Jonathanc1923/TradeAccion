@@ -192,7 +192,7 @@ class MasterTradingEngine:
     async def _execute_signal(self, signal: TradeSignal):
         """Ejecuta una señal autorizada enviando la orden Bracket a TopstepX."""
         meta = AVAILABLE_SYMBOLS[signal.symbol]
-        contracts = 2 if meta.is_micro else 1
+        contracts = self.strategy_cfg.contracts_per_trade
 
         self.log(
             f"🎯 DISPARO ORDEN: {signal.action} {contracts}x {signal.symbol} @ {signal.entry_price} "

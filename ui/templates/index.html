@@ -16,7 +16,7 @@
     <div class="logo-area">
       <div class="logo-badge">TOPSTEPX API</div>
       <div>
-        <div class="system-title">VWAP M15 BOUNCE ENGINE</div>
+        <div class="system-title">VWAP M30 BOUNCE ENGINE (2 CTRS)</div>
         <div class="system-subtitle" id="server-time-display">Cuenta: PRAC-V2-460183-95785678 ($150,000)</div>
       </div>
     </div>
@@ -65,7 +65,7 @@
     <!-- Navegación por Secciones Deslizables (Tabs) -->
     <div class="tabs-nav">
       <button class="tab-btn active" onclick="switchTab('tab-symbols')">📊 Monitor Multi-Símbolo</button>
-      <button class="tab-btn" onclick="switchTab('tab-chart')">📈 Gráfico VWAP M15 & Bandas</button>
+      <button class="tab-btn" onclick="switchTab('tab-chart')">📈 Gráfico VWAP M30 & Bandas</button>
       <button class="tab-btn" onclick="switchTab('tab-positions')">⚡ Posiciones Activas (<span id="count-positions">0</span>)</button>
       <button class="tab-btn" onclick="switchTab('tab-history')">📜 Historial de Operaciones</button>
       <button class="tab-btn" onclick="switchTab('tab-console')">💻 Consola del Servidor</button>
@@ -75,7 +75,7 @@
     <div id="tab-symbols" class="tab-content active">
       <div class="card-table-wrapper">
         <div class="table-header-title">
-          <h3>Futuros Activos CME (Rebote en VWAP de 15 Minutos)</h3>
+          <h3>Futuros Activos CME (Rebote en VWAP de 30 Minutos)</h3>
           <span style="font-size: 12px; color: var(--text-muted);">Actualizado en tiempo real por WebSocket</span>
         </div>
         <table class="data-table">
@@ -89,7 +89,7 @@
               <th>Banda -1σ</th>
               <th>Distancia TP (50%)</th>
               <th>SL Base (5 ticks)</th>
-              <th>Estado M15</th>
+              <th>Estado M30</th>
             </tr>
           </thead>
           <tbody id="symbols-table-body">
@@ -114,10 +114,14 @@
           <div style="display: flex; gap: 10px; align-items: center;">
             <label style="font-size: 12px; color: var(--text-muted);">Seleccionar Instrumento:</label>
             <select id="chart-symbol-select" class="clean-select" onchange="renderActiveChart()">
+              <option value="ES" selected>ES (E-mini S&P 500)</option>
+              <option value="NQ">NQ (E-mini Nasdaq 100)</option>
+              <option value="CL">CL (Crude Oil Petróleo)</option>
+              <option value="YM">YM (E-mini Dow Jones)</option>
               <option value="MES">MES (Micro S&P 500)</option>
               <option value="MNQ">MNQ (Micro Nasdaq 100)</option>
               <option value="MCL">MCL (Micro Crude Oil)</option>
-              <option value="MGC">MGC (Micro Gold)</option>
+              <option value="MYM">MYM (Micro Dow Jones)</option>
             </select>
           </div>
         </div>

@@ -19,31 +19,34 @@ class SymbolMetadata:
 
 # Metadatos precisos para todos los futuros CME admitidos en Topstep
 AVAILABLE_SYMBOLS: Dict[str, SymbolMetadata] = {
-    # Índices (Micros y Minis)
+    # Índices Minis Estándar CME (Principales)
+    "ES": SymbolMetadata("ES", "E-mini S&P 500", 0.25, 12.50, 2, False, "EQUITIES"),
+    "NQ": SymbolMetadata("NQ", "E-mini Nasdaq 100", 0.25, 5.00, 2, False, "EQUITIES"),
+    "YM": SymbolMetadata("YM", "E-mini Dow Jones", 1.00, 5.00, 2, False, "EQUITIES"),
+    "RTY": SymbolMetadata("RTY", "E-mini Russell 2000", 0.10, 5.00, 2, False, "EQUITIES"),
+    # Commodities Estándar
+    "CL": SymbolMetadata("CL", "Crude Oil (Petróleo)", 0.01, 10.00, 2, False, "COMMODITIES"),
+    "GC": SymbolMetadata("GC", "Gold (Oro)", 0.10, 10.00, 2, False, "METALS"),
+    
+    # Índices Micros CME
     "MES": SymbolMetadata("MES", "Micro E-mini S&P 500", 0.25, 1.25, 4, True, "EQUITIES"),
-    "ES": SymbolMetadata("ES", "E-mini S&P 500", 0.25, 12.50, 1, False, "EQUITIES"),
     "MNQ": SymbolMetadata("MNQ", "Micro E-mini Nasdaq 100", 0.25, 0.50, 4, True, "EQUITIES"),
-    "NQ": SymbolMetadata("NQ", "E-mini Nasdaq 100", 0.25, 5.00, 1, False, "EQUITIES"),
     "MYM": SymbolMetadata("MYM", "Micro E-mini Dow Jones", 1.00, 0.50, 4, True, "EQUITIES"),
-    "YM": SymbolMetadata("YM", "E-mini Dow Jones", 1.00, 5.00, 1, False, "EQUITIES"),
     "M2K": SymbolMetadata("M2K", "Micro E-mini Russell 2000", 0.10, 0.50, 4, True, "EQUITIES"),
-    "RTY": SymbolMetadata("RTY", "E-mini Russell 2000", 0.10, 5.00, 1, False, "EQUITIES"),
-    # Commodities
     "MCL": SymbolMetadata("MCL", "Micro Crude Oil", 0.01, 1.00, 4, True, "COMMODITIES"),
-    "CL": SymbolMetadata("CL", "Crude Oil", 0.01, 10.00, 1, False, "COMMODITIES"),
-    "MGC": SymbolMetadata("MGC", "Micro Gold", 0.10, 1.00, 4, True, "METALS"),
-    "GC": SymbolMetadata("GC", "Gold", 0.10, 10.00, 1, False, "METALS")
+    "MGC": SymbolMetadata("MGC", "Micro Gold", 0.10, 1.00, 4, True, "METALS")
 }
 
 @dataclass
 class StrategyConfig:
-    candle_timeframe_minutes: int = 15
+    candle_timeframe_minutes: int = 30       # Velas institucionales de 30 minutos (M30)
+    contracts_per_trade: int = 2             # 2 Contratos fijos por operación
     sl_ticks_from_vwap: int = 5              # Exactamente 5 ticks detrás de la línea VWAP
     tp_band_distance_ratio: float = 0.50     # 50% de la distancia entre VWAP y la banda siguiente
     band_std_multiplier: float = 1.0         # Banda 1 de desviación estándar
     
-    # Símbolos activos por defecto (se pueden alternar desde la UI)
-    active_symbols: List[str] = field(default_factory=lambda: ["MES", "MNQ", "MCL", "MGC"])
+    # Símbolos activos por defecto (ES, NQ, CL, YM)
+    active_symbols: List[str] = field(default_factory=lambda: ["ES", "NQ", "CL", "YM"])
 
 @dataclass
 class ScheduleConfig:
