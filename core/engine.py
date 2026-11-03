@@ -188,7 +188,10 @@ class MasterTradingEngine:
                     self.log(f"Error al cargar datos para {sym}: {e}", "ERROR")
 
     async def update_live_bars_from_topstepx(self):
-        """Consulta barras M30 recientes en vivo a TopstepX API para los contratos activos."""
+        """Consulta barras M30 recientes en vivo a TopstepX API con espaciado anti-429."""
+        if time.time() < self.api_client.rate_limited_until:
+            return
+
         if not self.api_client.is_authenticated:
             auth_ok = await self.api_client.authenticate()
             if not auth_ok:
@@ -217,6 +220,8 @@ class MasterTradingEngine:
                         # Si es más reciente que la última vela
                         if not worker.candles or bar_data["timestamp"] > worker.candles[-1].timestamp:
                             worker.process_m30_bar(bar_data, dt_ct)
+                # Pausa preventiva de 2 segundos entre símbolos para no saturar la API
+                await asyncio.sleep(2.0)
             except Exception as e:
                 logging.debug(f"Live bar fetch {sym}: {e}")
 
@@ -241,9 +246,9 @@ class MasterTradingEngine:
                         for sym in list(self.risk_guardian.open_positions.keys()):
                             await self.flatten_symbol(sym, reason="Cierre forzoso de sesión Topstep")
 
-                # 2. Consultar barras M30 en vivo periódicamente
+                # 2. Consultar barras M30 en vivo cada 60 segundos
                 tick_counter += 1
-                if tick_counter % 10 == 0:
+                if tick_counter % 20 == 0:
                     await self.update_live_bars_from_topstepx()
 
                 # 3. Evaluar señales de apertura de vela en cada símbolo

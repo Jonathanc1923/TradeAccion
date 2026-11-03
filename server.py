@@ -82,7 +82,7 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "ui", "templates"))
 async def favicon():
     return Response(status_code=204)
 
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 async def serve_dashboard(request: Request):
     """Página principal del panel institucional."""
     return templates.TemplateResponse(request=request, name="index.html")

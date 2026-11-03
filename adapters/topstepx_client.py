@@ -12,6 +12,7 @@ import aiohttp
 import asyncio
 import json
 import logging
+import time
 from typing import Optional, List, Dict
 
 class TopstepXClient:
@@ -22,6 +23,7 @@ class TopstepXClient:
         self.token: Optional[str] = None
         self.is_authenticated: bool = False
         self.account_id: Optional[str] = None
+        self.rate_limited_until: float = 0.0
 
     def get_headers(self) -> Dict[str, str]:
         headers = {
@@ -66,9 +68,18 @@ class TopstepXClient:
         """
         Descarga barras históricas oficiales desde POST /api/History/retrieveBars
         unit: 2 = Minutos, unitNumber: 30 = Velas de 30 minutos (M30)
+        Incluye protección inteligente contra Rate Limiting (HTTP 429).
         """
+        now = time.time()
+        if now < self.rate_limited_until:
+            wait_rem = int(self.rate_limited_until - now)
+            logging.debug(f"Pausa activa por rate limit TopstepX ({wait_rem}s restantes).")
+            return []
+
         if not self.is_authenticated:
-            await self.authenticate()
+            auth_ok = await self.authenticate()
+            if not auth_ok:
+                return []
 
         url = f"{self.base_url}/api/History/retrieveBars"
         payload = {
@@ -81,14 +92,23 @@ class TopstepXClient:
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload, headers=self.get_headers(), timeout=20) as resp:
-                if resp.status == 200:
-                    result = await resp.json()
-                    return result.get("bars", [])
-                else:
-                    text = await resp.text()
-                    logging.error(f"Error al descargar barras de TopstepX ({resp.status}): {text}")
-                    return []
+            try:
+                async with session.post(url, json=payload, headers=self.get_headers(), timeout=15) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        return result.get("bars", [])
+                    elif resp.status == 429:
+                        # Pausa de 60 segundos respetando el rate limit de TopstepX
+                        self.rate_limited_until = time.time() + 60.0
+                        logging.warning("⚠️ Rate limit 429 detectado en TopstepX API. Enfriando consultas por 60 segundos...")
+                        return []
+                    else:
+                        text = await resp.text()
+                        logging.warning(f"Respuesta TopstepX ({resp.status}): {text}")
+                        return []
+            except Exception as e:
+                logging.debug(f"Error de conexión en retrieve_bars: {e}")
+                return []
 
     async def send_bracket_order(self, symbol: str, action: str, quantity: int, limit_price: float, sl_price: float, tp_price: float) -> dict:
         """Envía orden con SL y TP al servidor de TopstepX."""
