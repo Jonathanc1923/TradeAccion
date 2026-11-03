@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Topstep VWAP M15 Engine | Panel Institucional</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Header Superior -->
+  <header class="app-header">
+    <div class="logo-area">
+      <div class="logo-badge">TOPSTEPX API</div>
+      <div>
+        <div class="system-title">VWAP M15 BOUNCE ENGINE</div>
+        <div class="system-subtitle" id="server-time-display">Cuenta: PRAC-V2-460183-95785678 ($150,000)</div>
+      </div>
+    </div>
+
+    <div class="header-status">
+      <div id="trading-status-pill" class="status-pill">
+        <span class="status-dot"></span>
+        <span id="trading-status-text">EVALUANDO HORARIO...</span>
+      </div>
+      <button class="btn-danger" id="btn-flatten-all" onclick="flattenAllPositions()">
+        🚨 FLATTEN ALL
+      </button>
+    </div>
+  </header>
+
+  <!-- Contenedor Principal -->
+  <main class="dashboard-container">
+
+    <!-- Fila de Métricas Principales (KPIs de Riesgo Topstep) -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">PnL Total Diario</div>
+        <div class="metric-val" id="metric-daily-pnl">$0.00</div>
+        <div class="metric-sub" id="metric-pnl-breakdown">Realizado: $0.00 | Flotante: $0.00</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Límite Diario Preventivo (DLL)</div>
+        <div class="metric-val" id="metric-dll-limit">$1,000.00</div>
+        <div class="metric-sub">Límite Topstep $150k: $2,000.00</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Objetivo de Beneficio</div>
+        <div class="metric-val" style="color: var(--accent-blue);" id="metric-target">$9,000.00</div>
+        <div class="metric-sub" id="metric-target-progress">Consistencia Máx: $3,000.00/día</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Horario Central Time (CME)</div>
+        <div class="metric-val" style="font-size: 19px;" id="metric-ct-time">--:--:-- CT</div>
+        <div class="metric-sub" id="metric-schedule-sub">Cierre diario forzoso: 15:05 CT</div>
+      </div>
+    </div>
+
+    <!-- Navegación por Secciones Deslizables (Tabs) -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab('tab-symbols')">📊 Monitor Multi-Símbolo</button>
+      <button class="tab-btn" onclick="switchTab('tab-chart')">📈 Gráfico VWAP M15 & Bandas</button>
+      <button class="tab-btn" onclick="switchTab('tab-positions')">⚡ Posiciones Activas (<span id="count-positions">0</span>)</button>
+      <button class="tab-btn" onclick="switchTab('tab-history')">📜 Historial de Operaciones</button>
+      <button class="tab-btn" onclick="switchTab('tab-console')">💻 Consola del Servidor</button>
+    </div>
+
+    <!-- TAB 1: Monitor Multi-Símbolo -->
+    <div id="tab-symbols" class="tab-content active">
+      <div class="card-table-wrapper">
+        <div class="table-header-title">
+          <h3>Futuros Activos CME (Rebote en VWAP de 15 Minutos)</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Actualizado en tiempo real por WebSocket</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Símbolo</th>
+              <th>Nombre</th>
+              <th>Último Precio</th>
+              <th>Línea VWAP</th>
+              <th>Banda +1σ</th>
+              <th>Banda -1σ</th>
+              <th>Distancia TP (50%)</th>
+              <th>SL Base (5 ticks)</th>
+              <th>Estado M15</th>
+            </tr>
+          </thead>
+          <tbody id="symbols-table-body">
+            <tr>
+              <td colspan="9" style="text-align:center; padding: 20px;">Cargando instrumentos...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 2: Gráfico M15 & Bandas -->
+    <div id="tab-chart" class="tab-content">
+      <div class="chart-container">
+        <div class="chart-header">
+          <div>
+            <h3 style="font-size: 15px; font-weight: 600;">Visualizador de Velas M15, VWAP y Bandas</h3>
+            <span style="font-size: 12px; color: var(--text-muted);">
+              Línea Cyan: VWAP | Línea Púrpura: Banda ±1σ | Nivel TP: 50% de banda | Nivel SL: 5 ticks de VWAP
+            </span>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <label style="font-size: 12px; color: var(--text-muted);">Seleccionar Instrumento:</label>
+            <select id="chart-symbol-select" class="clean-select" onchange="renderActiveChart()">
+              <option value="MES">MES (Micro S&P 500)</option>
+              <option value="MNQ">MNQ (Micro Nasdaq 100)</option>
+              <option value="MCL">MCL (Micro Crude Oil)</option>
+              <option value="MGC">MGC (Micro Gold)</option>
+            </select>
+          </div>
+        </div>
+        <canvas id="candleChartCanvas" class="chart-canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- TAB 3: Posiciones Activas -->
+    <div id="tab-positions" class="tab-content">
+      <div class="card-table-wrapper">
+        <div class="table-header-title">
+          <h3>Posiciones Abiertas en TopstepX</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Bracket Orders gestionadas en servidor</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Símbolo</th>
+              <th>Dirección</th>
+              <th>Contratos</th>
+              <th>Precio Entrada</th>
+              <th>Stop Loss (5 ticks)</th>
+              <th>Take Profit (50% Banda)</th>
+              <th>Hora Apertura</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="positions-table-body">
+            <tr>
+              <td colspan="8" style="text-align:center; padding: 20px;">Sin posiciones abiertas. Esperando señal M15.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 4: Historial de Operaciones -->
+    <div id="tab-history" class="tab-content">
+      <div class="card-table-wrapper">
+        <div class="table-header-title">
+          <h3>Historial de Operaciones de la Sesión</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Registro inmutable de ejecuciones</span>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Hora Cierre</th>
+              <th>Símbolo</th>
+              <th>Dirección</th>
+              <th>Contratos</th>
+              <th>Entrada</th>
+              <th>Salida</th>
+              <th>PnL Obtenido</th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body">
+            <tr>
+              <td colspan="7" style="text-align:center; padding: 20px;">No hay operaciones cerradas aún hoy.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 5: Consola del Servidor -->
+    <div id="tab-console" class="tab-content">
+      <div class="card-table-wrapper">
+        <div class="table-header-title">
+          <h3>Registro de Eventos y Decisiones del Algoritmo (Live Logs)</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Monitoreo continuo de riesgo y órdenes</span>
+        </div>
+        <div style="padding: 16px;">
+          <div id="console-logs-container" class="console-box">
+            <!-- Inyectado por JavaScript -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

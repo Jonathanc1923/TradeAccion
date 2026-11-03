@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+
+# Archivos de entorno y credenciales (NUNCA subir a GitHub)
+.env
+*.pem
+*.key
+
+# Archivos temporales y de sistema
+*.log
+.DS_Store
+Thumbs.db
