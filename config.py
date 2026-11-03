@@ -81,7 +81,7 @@ if os.path.exists(env_path):
 
 # Configuración del Servidor Web & API
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
-SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+SERVER_PORT = int(os.getenv("PORT", os.getenv("SERVER_PORT", "8000")))
 TOPSTEPX_BASE_URL = os.getenv("TOPSTEPX_BASE_URL", "https://api.topstepx.com")
 TOPSTEPX_WS_URL = os.getenv("TOPSTEPX_WS_URL", "wss://live.topstepx.com/stream")
 TOPSTEPX_API_KEY = os.getenv("TOPSTEPX_API_KEY", "")
