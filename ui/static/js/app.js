@@ -183,17 +183,25 @@ function renderActiveChart() {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
 
-  // Ajustar resolución DPI
-  canvas.width = canvas.parentElement.clientWidth - 32;
-  canvas.height = 420;
+  // Ajustar resolución Retina / HiDPI para máxima nitidez de texto y líneas
+  const dpr = window.devicePixelRatio || 1;
+  const displayWidth = Math.max(300, canvas.parentElement.clientWidth - 32);
+  const displayHeight = 420;
+  canvas.width = Math.floor(displayWidth * dpr);
+  canvas.height = Math.floor(displayHeight * dpr);
+  canvas.style.width = displayWidth + "px";
+  canvas.style.height = displayHeight + "px";
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, displayWidth, displayHeight);
 
   const selectedSym = document.getElementById("chart-symbol-select").value;
   if (!latestState || !latestState.symbols || !latestState.symbols[selectedSym]) {
     ctx.fillStyle = "#64748b";
-    ctx.font = "14px JetBrains Mono";
+    ctx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
     ctx.fillText("Esperando datos de mercado para " + selectedSym + "...", 40, 180);
+    ctx.restore();
     return;
   }
 
@@ -202,8 +210,9 @@ function renderActiveChart() {
 
   if (candles.length === 0) {
     ctx.fillStyle = "#64748b";
-    ctx.font = "14px JetBrains Mono";
+    ctx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
     ctx.fillText("Cargando historial de velas M30 para " + selectedSym + "...", 40, 180);
+    ctx.restore();
     return;
   }
 
@@ -231,10 +240,10 @@ function renderActiveChart() {
   const totalRange = maxP - minP;
 
   const chartLeft = 50;
-  const chartRight = canvas.width - 95;
+  const chartRight = displayWidth - 95;
   const chartWidth = chartRight - chartLeft;
   const chartTop = 45;
-  const chartBottom = canvas.height - 35;
+  const chartBottom = displayHeight - 35;
   const chartHeight = chartBottom - chartTop;
 
   function toY(price) {
@@ -248,8 +257,8 @@ function renderActiveChart() {
   // 1. Grid y Etiquetas de Precio en el Eje Derecho
   ctx.strokeStyle = "#1e2538";
   ctx.lineWidth = 1;
-  ctx.fillStyle = "#64748b";
-  ctx.font = "11px JetBrains Mono";
+  ctx.fillStyle = "#94a3b8";
+  ctx.font = "11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
   const numGridLines = 6;
   for (let i = 0; i <= numGridLines; i++) {
@@ -326,9 +335,9 @@ function renderActiveChart() {
     ctx.fillRect(x - candleW / 2, yTop, candleW, bodyHeight);
   });
 
-  // 5. Etiquetas de Tiempo (Eje X)
-  ctx.fillStyle = "#64748b";
-  ctx.font = "10px JetBrains Mono";
+  // 5. Etiquetas de Tiempo (Eje X) con fuente clara anti-alias
+  ctx.fillStyle = "#94a3b8";
+  ctx.font = "11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const stepTime = Math.max(1, Math.floor(candles.length / 7));
   candles.forEach((c, i) => {
     if (i % stepTime === 0 || i === candles.length - 1) {
@@ -337,43 +346,88 @@ function renderActiveChart() {
     }
   });
 
-  // 6. Niveles de Estrategia Activa (SL 5 ticks VWAP y TP 50% Banda)
-  const tpDist = (bandUp - vwap) * 0.5;
-  const tpLevel = currP + tpDist;
-  const slLevel = vwap - (sData.tick_size * 5);
+  // 6. Niveles de Posición Activa vs Proyección de Estrategia
+  const openPositions = latestState.open_positions || [];
+  const activePos = openPositions.find(p => p.symbol === selectedSym);
 
-  const yTp = toY(tpLevel);
-  const ySl = toY(slLevel);
+  if (activePos) {
+    // Dibujar niveles reales de la posición abierta
+    const yEntry = toY(activePos.entry_price);
+    const yTp = toY(activePos.tp);
+    const ySl = toY(activePos.sl);
 
-  // Línea TP (Verde Discontinua)
-  ctx.strokeStyle = "#10b981";
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath();
-  ctx.moveTo(chartLeft, yTp);
-  ctx.lineTo(chartRight, yTp);
-  ctx.stroke();
-  ctx.fillStyle = "#10b981";
-  ctx.fillText(`TP: ${tpLevel.toFixed(2)}`, chartRight + 8, yTp + 4);
+    // Entrada (Azul)
+    ctx.strokeStyle = "#38bdf8";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(chartLeft, yEntry);
+    ctx.lineTo(chartRight, yEntry);
+    ctx.stroke();
+    ctx.fillStyle = "#38bdf8";
+    ctx.fillText(`ENTRADA: ${activePos.entry_price.toFixed(2)} (${activePos.action})`, chartRight + 8, yEntry + 4);
 
-  // Línea SL (Roja Discontinua)
-  ctx.strokeStyle = "#f43f5e";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(chartLeft, ySl);
-  ctx.lineTo(chartRight, ySl);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle = "#f43f5e";
-  ctx.fillText(`SL: ${slLevel.toFixed(2)}`, chartRight + 8, ySl + 4);
+    // Take Profit (Verde)
+    ctx.strokeStyle = "#10b981";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(chartLeft, yTp);
+    ctx.lineTo(chartRight, yTp);
+    ctx.stroke();
+    ctx.fillStyle = "#10b981";
+    ctx.fillText(`TP: ${activePos.tp.toFixed(2)}`, chartRight + 8, yTp + 4);
+
+    // Stop Loss (Rojo)
+    ctx.strokeStyle = "#f43f5e";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(chartLeft, ySl);
+    ctx.lineTo(chartRight, ySl);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#f43f5e";
+    ctx.fillText(`SL: ${activePos.sl.toFixed(2)}`, chartRight + 8, ySl + 4);
+  } else {
+    // Si no hay posición activa, dibujar niveles de referencia teóricos diferenciados
+    const tpDist = (bandUp - vwap) * 0.5;
+    const tpLevel = currP + tpDist;
+    const slLevel = vwap - (sData.tick_size * 5);
+
+    const yTp = toY(tpLevel);
+    const ySl = toY(slLevel);
+
+    // Línea Proyección TP (Verde sutil)
+    ctx.strokeStyle = "rgba(16, 185, 129, 0.45)";
+    ctx.lineWidth = 1.2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(chartLeft, yTp);
+    ctx.lineTo(chartRight, yTp);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(16, 185, 129, 0.9)";
+    ctx.fillText(`Obj TP Ref: ${tpLevel.toFixed(2)}`, chartRight + 8, yTp + 4);
+
+    // Línea Proyección SL (Roja sutil)
+    ctx.strokeStyle = "rgba(244, 63, 94, 0.45)";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(chartLeft, ySl);
+    ctx.lineTo(chartRight, ySl);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(244, 63, 94, 0.9)";
+    ctx.fillText(`Nivel SL Ref: ${slLevel.toFixed(2)}`, chartRight + 8, ySl + 4);
+  }
 
   // 7. Encabezado con Información en Tiempo Real de la Sesión
   ctx.fillStyle = "#f8fafc";
-  ctx.font = "bold 13px JetBrains Mono";
+  ctx.font = "bold 13px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   ctx.fillText(
     `${selectedSym} (M30) | Spot: ${currP.toFixed(2)} | VWAP Sesión: ${vwap.toFixed(2)} | +1σ: ${bandUp.toFixed(2)} | -1σ: ${bandLow.toFixed(2)}`,
     chartLeft, 24
   );
+
+  ctx.restore();
 }
 
 // Navegación por pestañas

@@ -17,7 +17,7 @@ import logging
 import os
 import time
 import zoneinfo
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Callable
 
 from config import (
@@ -33,6 +33,17 @@ from adapters.topstepx_client import TopstepXClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+def get_cme_session_key(dt_ct: datetime) -> str:
+    """
+    Calcula la fecha identificadora de la sesión CME.
+    La sesión inicia a las 17:00 CT. Toda vela entre las 17:00 CT de hoy
+    y las 16:00 CT de mañana pertenece a la misma sesión diaria.
+    """
+    if dt_ct.hour >= 17:
+        return dt_ct.strftime("%Y-%m-%d")
+    else:
+        return (dt_ct - timedelta(days=1)).strftime("%Y-%m-%d")
+
 class SymbolWorker:
     """Gestiona el cálculo de velas M30, Session VWAP y señales de un símbolo."""
     def __init__(self, meta: SymbolMetadata, strategy_cfg: StrategyConfig):
@@ -44,20 +55,20 @@ class SymbolWorker:
         self.last_signal: Optional[TradeSignal] = None
         self.pending_signal: Optional[dict] = None
         self.current_price: float = 0.0
-        self.last_session_date: Optional[str] = None
+        self.last_session_key: Optional[str] = None
 
     def process_m30_bar(self, bar: dict, dt_ct: datetime):
         """
         Procesa una vela M30 completa con la regla exacta de anclaje de sesión CME (17:00 CT).
         """
-        day_str = dt_ct.strftime("%Y-%m-%d")
+        session_key = get_cme_session_key(dt_ct)
 
-        # 1. Reseteo oficial de sesión a las 17:00 CT
-        if self.last_session_date != day_str and dt_ct.hour >= 17:
+        # 1. Reseteo oficial de sesión al detectar una nueva sesión CME (17:00 CT)
+        if self.last_session_key is not None and session_key != self.last_session_key:
             self.vwap_engine.reset()
             self.candles.clear()
-            self.last_session_date = day_str
             self.pending_signal = None
+        self.last_session_key = session_key
 
         # 2. Actualizar VWAP y Bandas con precio típico y volumen real
         vwap, upper, lower = self.vwap_engine.update_candle(
@@ -199,31 +210,49 @@ class MasterTradingEngine:
             if not auth_ok:
                 return
 
+        now_utc = datetime.now(timezone.utc)
+        start_utc = now_utc - timedelta(days=2)
+
         for sym, worker in self.workers.items():
             contract_id = TOPSTEPX_CONTRACT_IDS.get(sym)
             if not contract_id:
                 continue
             try:
-                raw_bars = await self.api_client.retrieve_bars(contract_id=contract_id, unit=2, unit_number=30, limit=10)
+                raw_bars = await self.api_client.retrieve_bars(
+                    contract_id=contract_id,
+                    unit=2,
+                    unit_number=30,
+                    limit=100,
+                    start_time=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    end_time=now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    include_partial_bar=False
+                )
                 if raw_bars:
+                    sorted_bars = []
                     for b in raw_bars:
                         iso_str = b.get("t") or b.get("datetime_iso")
                         if not iso_str: continue
                         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
                         dt_ct = dt.astimezone(self.tz_ct)
-                        bar_data = {
+                        sorted_bars.append({
                             "timestamp": int(dt.timestamp() * 1000),
+                            "dt_ct": dt_ct,
                             "open": float(b.get("o") or b.get("open")),
                             "high": float(b.get("h") or b.get("high")),
                             "low": float(b.get("l") or b.get("low")),
                             "close": float(b.get("c") or b.get("close")),
                             "volume": float(b.get("v") or b.get("volume") or 1000.0)
-                        }
-                        # Si es más reciente que la última vela
+                        })
+                    sorted_bars.sort(key=lambda x: x["timestamp"])
+
+                    for bar_data in sorted_bars:
+                        # Si es más reciente que la última vela cargada
                         if not worker.candles or bar_data["timestamp"] > worker.candles[-1].timestamp:
-                            worker.process_m30_bar(bar_data, dt_ct)
-                # Pausa preventiva de 2 segundos entre símbolos para no saturar la API
-                await asyncio.sleep(2.0)
+                            worker.process_m30_bar(bar_data, bar_data["dt_ct"])
+                            self.log(f"📥 Nueva barra M30 recibida ({sym}): C={bar_data['close']} | VWAP={worker.candles[-1].vwap:.2f}")
+
+                # Pausa preventiva de 2.5 segundos entre símbolos para no saturar la API
+                await asyncio.sleep(2.5)
             except Exception as e:
                 logging.debug(f"Live bar fetch {sym}: {e}")
 
@@ -363,19 +392,25 @@ class MasterTradingEngine:
             limit_price=signal.entry_price,
             sl_price=signal.sl_price,
             tp_price=signal.tp_price,
-            symbol=signal.symbol
+            symbol=signal.symbol,
+            risk_ticks=signal.risk_ticks,
+            reward_ticks=signal.reward_ticks
         )
 
-        order_id = order_res.get("orderId", f"SIM_{int(time.time())}")
-        self.risk_guardian.record_open_position(
-            symbol=signal.symbol,
-            action=signal.action,
-            size=contracts,
-            entry_price=signal.entry_price,
-            sl=signal.sl_price,
-            tp=signal.tp_price,
-            order_id=order_id
-        )
+        order_id = order_res.get("orderId", f"TX_{signal.action}_{int(time.time())}")
+        if order_res.get("status") == "SUBMITTED":
+            self.risk_guardian.record_open_position(
+                symbol=signal.symbol,
+                action=signal.action,
+                size=contracts,
+                entry_price=signal.entry_price,
+                sl=signal.sl_price,
+                tp=signal.tp_price,
+                order_id=order_id
+            )
+            self.log(f"✅ Posición abierta en {signal.symbol}: {signal.action} {contracts} contratos @ {signal.entry_price} (Order ID: {order_id})")
+        else:
+            self.log(f"⚠️ Orden TopstepX no completada: {order_res.get('errorMessage', 'Error de envío')}", "WARNING")
 
     async def flatten_symbol(self, symbol: str, reason: str = "Manual"):
         """Liquida una posición abierta inmediatamente."""
