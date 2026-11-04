@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI):
     trading_task.cancel()
     logging.info("Servidor detenido limpiamente.")
 
-app = FastAPI(title="Topstep VWAP M15 Engine", lifespan=lifespan)
+app = FastAPI(title="Topstep VWAP M30 Bounce Engine", lifespan=lifespan)
 
 # Archivos estáticos y plantillas
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

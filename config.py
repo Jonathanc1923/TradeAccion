@@ -1,5 +1,5 @@
 """
-Configuración Global del Sistema de Trading VWAP M15 para Servidor
+Configuración Global del Sistema de Trading VWAP M30 para Servidor
 Multi-símbolo, horarios de mantenimiento y parámetros de Topstep.
 """
 

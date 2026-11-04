@@ -177,6 +177,8 @@ class MasterTradingEngine:
                     # Replay session bars starting from official 17:00 CT anchor
                     for b in bars:
                         worker.process_m30_bar(b, b["dt_ct"])
+                    # Limpiar señales pendientes residuales de datos históricos para arrancar en tiempo real limpio
+                    worker.pending_signal = None
 
                     snap = worker.vwap_engine.get_snapshot()
                     self.log(
@@ -353,13 +355,15 @@ class MasterTradingEngine:
             f"| TP (50% Banda): {signal.tp_price} ({signal.reward_ticks} ticks) | R:R 1:{signal.risk_reward_ratio}"
         )
 
+        contract_id = TOPSTEPX_CONTRACT_IDS.get(signal.symbol, signal.symbol)
         order_res = await self.api_client.send_bracket_order(
-            symbol=signal.symbol,
+            contract_id=contract_id,
             action=signal.action,
             quantity=contracts,
             limit_price=signal.entry_price,
             sl_price=signal.sl_price,
-            tp_price=signal.tp_price
+            tp_price=signal.tp_price,
+            symbol=signal.symbol
         )
 
         order_id = order_res.get("orderId", f"SIM_{int(time.time())}")
@@ -387,7 +391,8 @@ class MasterTradingEngine:
             pnl = ticks * meta.tick_value * pos["size"]
 
             self.risk_guardian.record_close_position(symbol, exit_price, pnl)
-            await self.api_client.flatten_all_positions(symbol)
+            contract_id = TOPSTEPX_CONTRACT_IDS.get(symbol, symbol)
+            await self.api_client.flatten_all_positions(contract_id)
             self.log(f"🛑 Posición en {symbol} cerrada ({reason}). PnL: ${pnl:.2f}")
 
     def get_full_state_snapshot(self) -> dict:

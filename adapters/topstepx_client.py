@@ -110,12 +110,12 @@ class TopstepXClient:
                 logging.debug(f"Error de conexión en retrieve_bars: {e}")
                 return []
 
-    async def send_bracket_order(self, symbol: str, action: str, quantity: int, limit_price: float, sl_price: float, tp_price: float) -> dict:
+    async def send_bracket_order(self, contract_id: str, action: str, quantity: int, limit_price: float, sl_price: float, tp_price: float, symbol: Optional[str] = None) -> dict:
         """Envía orden con SL y TP al servidor de TopstepX."""
         url = f"{self.base_url}/api/Order/place"
         # Mapeo según la especificación de Swagger
         payload = {
-            "contractId": symbol,
+            "contractId": contract_id,
             "action": action, # "BUY" o "SELL"
             "quantity": quantity,
             "type": "LIMIT",
@@ -124,11 +124,11 @@ class TopstepXClient:
             "takeProfit": tp_price
         }
         logging.info(f"📤 ORDEN ENVIADA A TOPSTEPX ({url}): {payload}")
-        return {"status": "SUBMITTED", "orderId": f"TX_{action}_{symbol}"}
+        return {"status": "SUBMITTED", "orderId": f"TX_{action}_{symbol or contract_id}"}
 
-    async def flatten_all_positions(self, symbol: str) -> bool:
+    async def flatten_all_positions(self, contract_id: str) -> bool:
         """Cierra la posición abierta en el contrato."""
         url = f"{self.base_url}/api/Position/closeContract"
-        payload = {"contractId": symbol}
-        logging.warning(f"🚨 FLATTEN ENVIADO A TOPSTEPX ({symbol})")
+        payload = {"contractId": contract_id}
+        logging.warning(f"🚨 FLATTEN ENVIADO A TOPSTEPX ({contract_id})")
         return True
