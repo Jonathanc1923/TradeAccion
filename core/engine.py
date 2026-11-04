@@ -205,9 +205,14 @@ class MasterTradingEngine:
                 except Exception as e:
                     self.log(f"Error al cargar datos para {sym}: {e}", "ERROR")
 
-    async def update_live_bars_from_topstepx(self):
-        """Consulta barras M30 recientes en vivo a TopstepX API con espaciado anti-429."""
+    async def _update_single_symbol_live_bars(self, sym: str):
+        """Consulta las barras recientes de UN SOLO símbolo a TopstepX con estricto respeto anti-429."""
         if time.time() < self.api_client.rate_limited_until:
+            return
+
+        worker = self.workers.get(sym)
+        contract_id = TOPSTEPX_CONTRACT_IDS.get(sym)
+        if not worker or not contract_id:
             return
 
         if not self.api_client.is_authenticated:
@@ -216,57 +221,77 @@ class MasterTradingEngine:
                 return
 
         now_utc = datetime.now(timezone.utc)
-        start_utc = now_utc - timedelta(days=2)
+        # 14 horas cubre holgadamente desde la apertura de las 17:00 CT de la sesión actual
+        start_utc = now_utc - timedelta(hours=14)
 
-        for sym, worker in self.workers.items():
-            contract_id = TOPSTEPX_CONTRACT_IDS.get(sym)
-            if not contract_id:
-                continue
-            try:
-                raw_bars = await self.api_client.retrieve_bars(
-                    contract_id=contract_id,
-                    unit=2,
-                    unit_number=30,
-                    limit=100,
-                    start_time=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    end_time=now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    include_partial_bar=False
-                )
-                if raw_bars:
-                    sorted_bars = []
-                    for b in raw_bars:
-                        iso_str = b.get("t") or b.get("datetime_iso")
-                        if not iso_str: continue
-                        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-                        dt_ct = dt.astimezone(self.tz_ct)
-                        sorted_bars.append({
-                            "timestamp": int(dt.timestamp() * 1000),
-                            "dt_ct": dt_ct,
-                            "open": float(b.get("o") or b.get("open")),
-                            "high": float(b.get("h") or b.get("high")),
-                            "low": float(b.get("l") or b.get("low")),
-                            "close": float(b.get("c") or b.get("close")),
-                            "volume": float(b.get("v") or b.get("volume") or 1000.0)
-                        })
-                    sorted_bars.sort(key=lambda x: x["timestamp"])
+        try:
+            raw_bars = await self.api_client.retrieve_bars(
+                contract_id=contract_id,
+                unit=2,
+                unit_number=30,
+                limit=35,
+                start_time=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                end_time=now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                include_partial_bar=True
+            )
+            if raw_bars:
+                sorted_bars = []
+                for b in raw_bars:
+                    iso_str = b.get("t") or b.get("datetime_iso")
+                    if not iso_str: continue
+                    dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+                    dt_ct = dt.astimezone(self.tz_ct)
+                    sorted_bars.append({
+                        "timestamp": int(dt.timestamp() * 1000),
+                        "dt_ct": dt_ct,
+                        "open": float(b.get("o") or b.get("open")),
+                        "high": float(b.get("h") or b.get("high")),
+                        "low": float(b.get("l") or b.get("low")),
+                        "close": float(b.get("c") or b.get("close")),
+                        "volume": float(b.get("v") or b.get("volume") or 1000.0)
+                    })
+                sorted_bars.sort(key=lambda x: x["timestamp"])
 
-                    for bar_data in sorted_bars:
-                        # Si es más reciente que la última vela cargada
-                        if not worker.candles or bar_data["timestamp"] > worker.candles[-1].timestamp:
-                            worker.process_m30_bar(bar_data, bar_data["dt_ct"])
-                            self.log(f"📥 Nueva barra M30 recibida ({sym}): C={bar_data['close']} | VWAP={worker.candles[-1].vwap:.2f}")
+                for bar_data in sorted_bars:
+                    # Si no hay velas en memoria o la barra es estrictamente más nueva que la última
+                    if not worker.candles or bar_data["timestamp"] > worker.candles[-1].timestamp:
+                        worker.process_m30_bar(bar_data, bar_data["dt_ct"])
+                        self.log(f"📥 Barra M30 ({sym}) cargada: {bar_data['dt_ct'].strftime('%H:%M CT')} | C={bar_data['close']} | VWAP={worker.candles[-1].vwap:.2f}")
+                    elif worker.candles and bar_data["timestamp"] == worker.candles[-1].timestamp:
+                        # Actualizar en tiempo real la vela en formación y el precio Spot
+                        worker.candles[-1].high = max(worker.candles[-1].high, bar_data["high"])
+                        worker.candles[-1].low = min(worker.candles[-1].low, bar_data["low"])
+                        worker.candles[-1].close = bar_data["close"]
+                        worker.current_price = bar_data["close"]
 
-                # Pausa preventiva de 2.5 segundos entre símbolos para no saturar la API
-                await asyncio.sleep(2.5)
-            except Exception as e:
-                logging.debug(f"Live bar fetch {sym}: {e}")
+        except Exception as e:
+            logging.debug(f"Live bar fetch {sym}: {e}")
+
+    async def update_live_bars_from_topstepx(self):
+        """Consulta barras de todos los símbolos secuencialmente con pausas protectoras."""
+        for sym in self.strategy_cfg.active_symbols:
+            if sym in self.workers:
+                await self._update_single_symbol_live_bars(sym)
+                await asyncio.sleep(3.0)
 
     async def run_loop(self):
-        """Bucle principal asíncrono para servidor."""
+        """Bucle principal asíncrono con sondeo Round-Robin anti-429."""
         self.is_running = True
-        self.log("🚀 Motor Cuantitativo VWAP M30 Inicializado (2 Contratos).")
+        self.log(f"🚀 Motor Cuantitativo VWAP M30 Inicializado (Cuenta PRÁCTICA TopstepX {self.risk_guardian.acc_cfg.account_name}).")
         self.load_historical_cme_data()
 
+        # Autenticación inmediata
+        await self.api_client.authenticate()
+        await self.api_client.get_active_account_id()
+
+        # Sondeo inicial inmediato de los símbolos al arrancar para tener la sesión de hoy lista
+        symbol_list = [s for s in self.strategy_cfg.active_symbols if s in self.workers]
+        self.log("📡 Sincronizando barras de la sesión actual en vivo con TopstepX API...")
+        for sym in symbol_list:
+            await self._update_single_symbol_live_bars(sym)
+            await asyncio.sleep(2.0)
+
+        poll_index = 0
         tick_counter = 0
 
         while self.is_running:
@@ -282,10 +307,12 @@ class MasterTradingEngine:
                         for sym in list(self.risk_guardian.open_positions.keys()):
                             await self.flatten_symbol(sym, reason="Cierre forzoso de sesión Topstep")
 
-                # 2. Consultar barras M30 en vivo cada 60 segundos
+                # 2. Sondeo Round-Robin: Consulta UN SOLO símbolo cada 10 segundos (4 ticks x 2.5s)
                 tick_counter += 1
-                if tick_counter % 20 == 0:
-                    await self.update_live_bars_from_topstepx()
+                if tick_counter % 4 == 0 and symbol_list:
+                    target_sym = symbol_list[poll_index]
+                    poll_index = (poll_index + 1) % len(symbol_list)
+                    await self._update_single_symbol_live_bars(target_sym)
 
                 # 3. Evaluar señales de apertura de vela en cada símbolo
                 if is_allowed:
@@ -298,7 +325,7 @@ class MasterTradingEngine:
                 if self.ui_broadcast_callback:
                     await self.ui_broadcast_callback()
 
-                await asyncio.sleep(3)
+                await asyncio.sleep(2.5)
 
             except Exception as e:
                 self.log(f"Error en bucle de trading: {str(e)}", "ERROR")
