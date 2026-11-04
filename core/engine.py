@@ -33,11 +33,23 @@ from adapters.topstepx_client import TopstepXClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+def get_cme_session_start_time(now_ct: datetime) -> datetime:
+    """
+    Retorna el datetime exacto de inicio de la sesión CME actual (anclada a las 17:00 CT).
+    Si la hora actual es >= 17:00 CT, la sesión inició hoy a las 17:00 CT.
+    Si la hora actual es < 17:00 CT, la sesión inició ayer a las 17:00 CT.
+    """
+    if now_ct.hour >= 17:
+        d = now_ct.date()
+    else:
+        d = (now_ct - timedelta(days=1)).date()
+    return datetime(d.year, d.month, d.day, 17, 0, 0, tzinfo=now_ct.tzinfo)
+
 def get_cme_session_key(dt_ct: datetime) -> str:
     """
     Calcula la fecha identificadora de la sesión CME.
-    La sesión inicia a las 17:00 CT. Toda vela entre las 17:00 CT de hoy
-    y las 16:00 CT de mañana pertenece a la misma sesión diaria.
+    La sesión inicia a las 17:00 CT. Toda vela entre las 17:00 CT del día D
+    y las 16:00 CT del día D+1 pertenece a la misma sesión diaria.
     """
     if dt_ct.hour >= 17:
         return dt_ct.strftime("%Y-%m-%d")
@@ -160,12 +172,19 @@ class MasterTradingEngine:
 
     def load_historical_cme_data(self):
         """
-        Carga los datos reales oficiales de velas M30 de CME y ancla el Session VWAP a las 17:00 CT.
-        Exactamente idéntico al motor de backtest a 3 meses.
+        Carga EXCLUSIVAMENTE las velas de la sesión CME actual (ancladas a las 17:00 CT).
+        No procesa meses anteriores: 100% enfocado en la sesión activa en tiempo real.
         """
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
+        now_dt = datetime.now(timezone.utc)
+        now_ct = now_dt.astimezone(self.tz_ct)
+        session_start_ct = get_cme_session_start_time(now_ct)
+
         for sym, worker in self.workers.items():
+            worker.vwap_engine.reset()
+            worker.candles.clear()
+            worker.last_session_key = get_cme_session_key(now_ct)
+
             cache_path = os.path.join(base_dir, f"cache_m30_3months_{sym}.json")
             if not os.path.exists(cache_path):
                 cache_path = os.path.join(base_dir, f"cache_m30_30d_{sym}.json")
@@ -175,35 +194,37 @@ class MasterTradingEngine:
                     with open(cache_path, "r", encoding="utf-8") as f:
                         raw_bars = json.load(f)
 
-                    bars = []
+                    # Filtrar únicamente las barras pertenecientes a la sesión actual
+                    session_bars = []
                     for b in raw_bars:
                         iso_str = b.get("t") or b.get("datetime_iso")
+                        if not iso_str: continue
                         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
-                        bars.append({
-                            "timestamp": int(dt.timestamp() * 1000),
-                            "dt_ct": dt.astimezone(self.tz_ct),
-                            "open": float(b.get("o") or b.get("open")),
-                            "high": float(b.get("h") or b.get("high")),
-                            "low": float(b.get("l") or b.get("low")),
-                            "close": float(b.get("c") or b.get("close")),
-                            "volume": float(b.get("v") or b.get("volume") or 1000.0)
-                        })
-                    bars.sort(key=lambda x: x["timestamp"])
+                        dt_ct = dt.astimezone(self.tz_ct)
+                        if dt_ct >= session_start_ct:
+                            session_bars.append({
+                                "timestamp": int(dt.timestamp() * 1000),
+                                "dt_ct": dt_ct,
+                                "open": float(b.get("o") or b.get("open")),
+                                "high": float(b.get("h") or b.get("high")),
+                                "low": float(b.get("l") or b.get("low")),
+                                "close": float(b.get("c") or b.get("close")),
+                                "volume": float(b.get("v") or b.get("volume") or 1000.0)
+                            })
+                    session_bars.sort(key=lambda x: x["timestamp"])
 
-                    # Replay session bars starting from official 17:00 CT anchor
-                    for b in bars:
+                    for b in session_bars:
                         worker.process_m30_bar(b, b["dt_ct"])
-                    # Limpiar señales pendientes residuales de datos históricos para arrancar en tiempo real limpio
                     worker.pending_signal = None
 
                     snap = worker.vwap_engine.get_snapshot()
                     self.log(
-                        f"📊 {sym}: {len(worker.candles)} velas M30 reales cargadas. "
-                        f"Último: {worker.current_price:.2f} | VWAP Sesión: {snap['vwap']:.2f} "
+                        f"📊 {sym}: {len(worker.candles)} velas de sesión cargadas ({session_start_ct.strftime('%H:%M CT')} a actual). "
+                        f"Spot: {worker.current_price:.2f} | VWAP Sesión: {snap['vwap']:.2f} "
                         f"| +1σ: {snap['upper_band_1']:.2f} | -1σ: {snap['lower_band_1']:.2f}"
                     )
                 except Exception as e:
-                    self.log(f"Error al cargar datos para {sym}: {e}", "ERROR")
+                    self.log(f"Error al cargar sesión para {sym}: {e}", "ERROR")
 
     async def _update_single_symbol_live_bars(self, sym: str):
         """Consulta las barras recientes de UN SOLO símbolo a TopstepX con estricto respeto anti-429."""
@@ -220,18 +241,19 @@ class MasterTradingEngine:
             if not auth_ok:
                 return
 
-        now_utc = datetime.now(timezone.utc)
-        # 14 horas cubre holgadamente desde la apertura de las 17:00 CT de la sesión actual
-        start_utc = now_utc - timedelta(hours=14)
+        now_dt = datetime.now(timezone.utc)
+        now_ct = now_dt.astimezone(self.tz_ct)
+        session_start_ct = get_cme_session_start_time(now_ct)
+        start_utc = session_start_ct.astimezone(timezone.utc)
 
         try:
             raw_bars = await self.api_client.retrieve_bars(
                 contract_id=contract_id,
                 unit=2,
                 unit_number=30,
-                limit=35,
+                limit=48, # Máximo 48 velas M30 por sesión diaria CME (24h)
                 start_time=start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                end_time=now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                end_time=now_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 include_partial_bar=True
             )
             if raw_bars:
@@ -241,15 +263,17 @@ class MasterTradingEngine:
                     if not iso_str: continue
                     dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
                     dt_ct = dt.astimezone(self.tz_ct)
-                    sorted_bars.append({
-                        "timestamp": int(dt.timestamp() * 1000),
-                        "dt_ct": dt_ct,
-                        "open": float(b.get("o") or b.get("open")),
-                        "high": float(b.get("h") or b.get("high")),
-                        "low": float(b.get("l") or b.get("low")),
-                        "close": float(b.get("c") or b.get("close")),
-                        "volume": float(b.get("v") or b.get("volume") or 1000.0)
-                    })
+                    # Solo procesar barras de la sesión CME actual
+                    if dt_ct >= session_start_ct:
+                        sorted_bars.append({
+                            "timestamp": int(dt.timestamp() * 1000),
+                            "dt_ct": dt_ct,
+                            "open": float(b.get("o") or b.get("open")),
+                            "high": float(b.get("h") or b.get("high")),
+                            "low": float(b.get("l") or b.get("low")),
+                            "close": float(b.get("c") or b.get("close")),
+                            "volume": float(b.get("v") or b.get("volume") or 1000.0)
+                        })
                 sorted_bars.sort(key=lambda x: x["timestamp"])
 
                 for bar_data in sorted_bars:
