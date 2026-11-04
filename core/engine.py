@@ -130,7 +130,12 @@ class MasterTradingEngine:
         self.strategy_cfg = strategy_cfg
         self.schedule_guardian = ScheduleGuardian(schedule_cfg)
         self.risk_guardian = RiskGuardianMulti(account_cfg)
-        self.api_client = TopstepXClient(TOPSTEPX_USERNAME, TOPSTEPX_API_KEY, TOPSTEPX_BASE_URL)
+        self.api_client = TopstepXClient(
+            TOPSTEPX_USERNAME, 
+            TOPSTEPX_API_KEY, 
+            TOPSTEPX_BASE_URL,
+            target_account_id=account_cfg.account_id
+        )
         self.tz_ct = zoneinfo.ZoneInfo("America/Chicago")
 
         # Inicializar trabajadores para cada símbolo activo (ES, NQ, CL, YM)

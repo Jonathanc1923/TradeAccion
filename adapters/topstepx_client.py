@@ -19,10 +19,11 @@ from typing import Optional, List, Dict
 from config import AVAILABLE_SYMBOLS
 
 class TopstepXClient:
-    def __init__(self, username: str, api_key: str, base_url: str = "https://api.topstepx.com"):
+    def __init__(self, username: str, api_key: str, base_url: str = "https://api.topstepx.com", target_account_id: Optional[str] = "29324973"):
         self.username = username
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.target_account_id = target_account_id
         self.token: Optional[str] = None
         self.is_authenticated: bool = False
         self.account_id: Optional[int] = None
@@ -88,22 +89,33 @@ class TopstepXClient:
         return []
 
     async def get_active_account_id(self) -> Optional[int]:
-        """Obtiene el ID numérico de la cuenta habilitada para operar."""
+        """Obtiene el ID numérico de la cuenta habilitada para operar (priorizando la cuenta de Práctica)."""
         if self.account_id:
             return self.account_id
 
         accounts = await self.search_accounts()
-        # Priorizar cuentas con permiso de trading activo
+
+        # 1. Priorizar coincidencia exacta con target_account_id (ej: 29324973)
+        if self.target_account_id:
+            for acc in accounts:
+                if str(acc.get("id")) == str(self.target_account_id):
+                    self.account_id = int(acc["id"])
+                    logging.info(f"🎯 Cuenta de PRÁCTICA seleccionada por ID: {self.account_id} ({acc.get('name')})")
+                    return self.account_id
+
+        # 2. Priorizar cualquier cuenta que tenga "PRAC" en el nombre
+        for acc in accounts:
+            if "PRAC" in acc.get("name", "").upper() and acc.get("canTrade"):
+                self.account_id = int(acc["id"])
+                logging.info(f"🎯 Cuenta de PRÁCTICA seleccionada por nombre: {self.account_id} ({acc.get('name')})")
+                return self.account_id
+
+        # 3. Fallback en caso de no encontrar cuenta PRAC
         for acc in accounts:
             if acc.get("canTrade") and acc.get("isVisible"):
                 self.account_id = int(acc["id"])
-                logging.info(f"💼 Cuenta TopstepX seleccionada: ID={self.account_id} ({acc.get('name')})")
+                logging.warning(f"⚠️ Cuenta fallback seleccionada: ID={self.account_id} ({acc.get('name')})")
                 return self.account_id
-
-        if accounts:
-            self.account_id = int(accounts[0]["id"])
-            logging.info(f"💼 Cuenta TopstepX fallback: ID={self.account_id} ({accounts[0].get('name')})")
-            return self.account_id
 
         return None
 
